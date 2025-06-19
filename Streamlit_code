@@ -1,0 +1,98 @@
+import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from prophet import Prophet
+
+
+st.set_page_config(layout="wide")
+st.title("📈 Time Series Forecasting App")
+
+uploaded_file = st.file_uploader("Upload your stock CSV file", type=["csv"])
+
+if uploaded_file:
+    # Load and preprocess data
+    df = pd.read_csv(uploaded_file)
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.sort_values('Date', inplace=True)
+
+    if 'Name' in df.columns:
+        stock_names = df['Name'].unique()
+        selected_stock = st.selectbox("Select Stock (if multiple present)", stock_names)
+        df = df[df['Name'] == selected_stock]
+
+    df.set_index('Date', inplace=True)
+    df = df.ffill()
+    close_data = df['Close'].asfreq('D').ffill()
+
+    st.subheader("📊 Stock Close Price Over Time")
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(close_data)
+    ax.set_title("Close Price Over Time")
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Close Price")
+    ax.grid(True)
+    st.pyplot(fig)
+
+    # Time series decomposition
+    st.subheader("📉 Decomposition of Time Series")
+    decomposition = seasonal_decompose(close_data, model='additive', period=365)
+    fig = decomposition.plot()
+    st.pyplot(fig)
+
+    # Forecast Horizon
+    horizon = st.slider("Select forecast horizon (days)", 30, 365, 180)
+
+    # ARIMA Forecast
+    st.subheader("📈 ARIMA Forecast")
+    arima_model = ARIMA(close_data, order=(5, 1, 0))
+    arima_fit = arima_model.fit()
+    arima_forecast = arima_fit.forecast(steps=horizon)
+    arima_index = pd.date_range(start=close_data.index[-1] + pd.Timedelta(days=1), periods=horizon, freq='B')
+    arima_forecast = pd.Series(arima_forecast, index=arima_index)
+
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(close_data, label='Historical')
+    ax.plot(arima_forecast, label='ARIMA Forecast')
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
+
+    # SARIMA Forecast
+    st.subheader("📈 SARIMA Forecast")
+    sarima_model = SARIMAX(close_data, order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
+    sarima_fit = sarima_model.fit()
+    sarima_forecast = sarima_fit.forecast(steps=horizon)
+    sarima_index = pd.date_range(start=close_data.index[-1] + pd.Timedelta(days=1), periods=horizon, freq='B')
+    sarima_forecast = pd.Series(sarima_forecast, index=sarima_index)
+
+    fig, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(close_data, label='Historical')
+    ax.plot(sarima_forecast, label='SARIMA Forecast')
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
+
+    # Prophet Forecast
+    st.subheader("📈 Prophet Forecast")
+    df_prophet = close_data.reset_index()
+    df_prophet.columns = ['ds', 'y']
+    model = Prophet()
+    model.fit(df_prophet)
+    future = model.make_future_dataframe(periods=horizon)
+    forecast = model.predict(future)
+    forecast_series = forecast.set_index('ds')['yhat']
+
+    fig1 = model.plot(forecast)
+    st.pyplot(fig1)
+
+    fig2, ax = plt.subplots(figsize=(12, 4))
+    ax.plot(close_data, label='Historical')
+    ax.plot(forecast_series.loc[close_data.index[-1]:], label='Prophet Forecast')
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig2)
+else:
+    st.info("Please upload a stock dataset CSV file to begin.")
